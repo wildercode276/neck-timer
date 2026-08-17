@@ -210,6 +210,7 @@
   let TOTAL_REPS = 15;
   const HOLD_SECONDS = 5;
   const REST_SECONDS = 3;
+  const PREP_SECONDS = 5; // time to get into position before the first rep
 
   let exerciseIndex = 0;
   let repIndex = 0;
@@ -349,16 +350,23 @@
     return URL.createObjectURL(new Blob([view], { type: 'audio/wav' }));
   }
 
-  // higher double-beep = "go / hold"
-  const startBeepAudio = new Audio(samplesToWavUrl(concatSamples([
-    toneSamples(880, 0.15), silenceSamples(0.08), toneSamples(880, 0.15)
-  ])));
+  // higher single beep = "go / hold"
+  const startBeepAudio = new Audio(samplesToWavUrl(toneSamples(880, 0.18, 3)));
   // lower single beep = "stop / rest"
-  const stopBeepAudio = new Audio(samplesToWavUrl(toneSamples(330, 0.3)));
+  const stopBeepAudio = new Audio(samplesToWavUrl(toneSamples(330, 0.25, 3)));
   // lower double beep = "that's everything for this exercise"
   const finalBeepAudio = new Audio(samplesToWavUrl(concatSamples([
-    toneSamples(330, 0.25), silenceSamples(0.1), toneSamples(330, 0.25)
+    toneSamples(330, 0.25, 3), silenceSamples(0.1), toneSamples(330, 0.25, 3)
   ])));
+
+  // Rewind each clip as soon as it finishes, so the next play() is a straight
+  // start rather than a seek-then-start - the seek is what made cues land late.
+  [startBeepAudio, stopBeepAudio, finalBeepAudio].forEach(a => {
+    a.preload = 'auto';
+    a.addEventListener('ended', () => {
+      try { a.currentTime = 0; } catch (e) { /* ignore */ }
+    });
+  });
 
   // A very quiet continuous loop that keeps the audio session alive in the
   // background so the beeps above keep firing on schedule with the screen off.
@@ -368,7 +376,7 @@
 
   function playClip(audioEl) {
     try {
-      audioEl.currentTime = 0;
+      if (audioEl.currentTime !== 0) audioEl.currentTime = 0;
       audioEl.play().catch(() => {});
     } catch (e) { /* ignore */ }
   }
@@ -381,7 +389,7 @@
 
   function beepStart() {
     playClip(startBeepAudio);
-    vibrate([80, 60, 80]);
+    vibrate(100);
   }
 
   function beepStop() {
@@ -436,20 +444,62 @@
   });
 
   // ---- Countdown helper ----
+  // Driven by wall-clock deadline rather than by counting interval ticks.
+  // setInterval drifts, and iOS throttles timers hard once the page is
+  // backgrounded or the screen is off - counting ticks let that drift pile up
+  // across a set, so every cue landed progressively later. Comparing against a
+  // fixed deadline is self-correcting: a throttled tick fires the phase change
+  // as soon as it runs instead of losing the elapsed time for good.
   function countdownStep(totalSeconds, gen, onTick, onComplete) {
-    let remaining = totalSeconds;
-    onTick(remaining);
+    let deadline = Date.now() + totalSeconds * 1000;
+    let pausedAt = null;
+    let lastShown = null;
+
+    const show = (secs) => {
+      if (secs === lastShown) return; // avoid redundant DOM writes at 100ms
+      lastShown = secs;
+      onTick(secs);
+    };
+    show(totalSeconds);
+
+    clearInterval(activeInterval);
     activeInterval = setInterval(() => {
       if (gen !== generation) { clearInterval(activeInterval); return; } // stale after reset
-      if (paused) return; // frozen - don't count down while paused
-      remaining -= 1;
-      if (remaining <= 0) {
+
+      if (paused) {
+        if (pausedAt === null) pausedAt = Date.now();
+        return; // frozen - don't count down while paused
+      }
+      if (pausedAt !== null) {
+        deadline += Date.now() - pausedAt; // give back the time spent paused
+        pausedAt = null;
+      }
+
+      const msLeft = deadline - Date.now();
+      if (msLeft <= 0) {
         clearInterval(activeInterval);
         onComplete();
       } else {
-        onTick(remaining);
+        show(Math.ceil(msLeft / 1000));
       }
-    }, 1000);
+    }, 100);
+  }
+
+  // Lead-in rest before rep 1 so there's time to get into position. Runs at the
+  // start of every exercise, since each one needs its own setup.
+  function runPrep(gen) {
+    if (gen !== generation) return;
+
+    statusEl.className = 'status rest';
+    repCounterEl.textContent = 'Get into position';
+    countdownStep(PREP_SECONDS, gen,
+      (remaining) => {
+        statusTextEl.textContent = `READY  ${remaining}`;
+        lastTickLabel = statusTextEl.textContent;
+        lastStatusClass = statusEl.className;
+      },
+      () => { runRep(gen); }
+    );
   }
 
   function runRep(gen) {
@@ -508,7 +558,7 @@
     pauseBtn.style.display = 'block';
     pauseBtn.textContent = 'Pause';
     repSelectEl.classList.add('disabled');
-    runRep(generation);
+    runPrep(generation);
   });
 
   pauseBtn.addEventListener('click', () => {
