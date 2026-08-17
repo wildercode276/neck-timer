@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Neck Exercise Timer</title>
+<style>
+  :root {
+    --bg1: #f2f2f4;
+    --bg2: #e7e7ea;
+    --card: #ffffff;
+    --accent: #ec1361;
+    --ink: #1f2430;
+    --muted: #8a8f9c;
+    --hold: #ec1361;
+    --rest-c: #8a8f9c;
+    --done: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 8% 92%, rgba(236,19,97,0.05) 0%, transparent 40%),
+      linear-gradient(135deg, var(--bg1), var(--bg2));
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* decorative dotted circle rings, top-right and bottom-left, like the reference */
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    width: 260px;
+    height: 260px;
+    background-image: radial-gradient(circle, rgba(31,36,48,0.14) 1.6px, transparent 1.6px);
+    background-size: 22px 22px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before { top: -70px; right: -70px; }
+  body::after { bottom: -70px; left: -70px; }
+
+  .card {
+    background: var(--card);
+    border-radius: 22px;
+    padding: 36px 26px;
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(31,36,48,0.10);
+    position: relative;
+    z-index: 1;
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin: 0 0 14px 0;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--ink);
+  }
+  .divider {
+    width: 60px;
+    height: 3px;
+    background: var(--accent);
+    margin: 0 auto 20px auto;
+    border-radius: 2px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+    margin-bottom: 26px;
+    text-transform: uppercase;
+  }
+  .exercise-name {
+    font-size: 1.7rem;
+    font-weight: 800;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .rep-counter {
+    color: var(--muted);
+    font-size: 0.95rem;
+    margin-bottom: 22px;
+  }
+  .status {
+    font-size: 2.6rem;
+    font-weight: 800;
+    letter-spacing: 2px;
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    margin-bottom: 26px;
+    background: #f7f7f9;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  .status.idle { color: var(--muted); font-size: 1.3rem; }
+  .status.hold { background: rgba(236,19,97,0.08); color: var(--hold); }
+  .status.rest { background: rgba(138,143,156,0.10); color: var(--rest-c); }
+  .status.done { background: rgba(22,163,74,0.10); color: var(--done); font-size: 1.3rem; }
+
+  button {
+    width: 100%;
+    padding: 16px;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: none;
+    border-radius: 12px;
+    background: var(--ink);
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .exercise-progress {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    margin-bottom: 18px;
+    font-size: 0.78rem;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .exercise-progress span.active {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .exercise-progress span.complete {
+    color: var(--done);
+  }
+  .rep-select {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .rep-select.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+  .rep-option {
+    width: auto;
+    padding: 8px 18px;
+    font-size: 0.85rem;
+    border-radius: 999px;
+    background: #f0f0f3;
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+  }
+  .rep-option.active {
+    background: var(--accent);
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Neck Exercises</h1>
+  <div class="divider"></div>
+  <div class="subtitle" id="subtitle">15 reps · 5s hold · 3s rest</div>
+
+  <div class="rep-select" id="repSelect">
+    <button class="rep-option" data-reps="10">10 reps</button>
+    <button class="rep-option active" data-reps="15">15 reps</button>
+  </div>
+
+  <div class="exercise-progress" id="exerciseProgress"></div>
+
+  <div class="exercise-name" id="exerciseName">Both Hands</div>
+  <div class="rep-counter" id="repCounter">Ready to start</div>
+
+  <div class="status idle" id="status">
+    <div>
+      <div id="statusText">READY</div>
+    </div>
+  </div>
+
+  <div id="audioBanner" style="display:none; margin-bottom:16px; padding:12px; border-radius:10px; background:#fff0f5; border:1.5px solid #ec1361; color:#ec1361; font-weight:700; font-size:0.9rem; cursor:pointer;">
+    🔇 Sound paused by iOS — tap here to resume
+  </div>
+
+  <button id="startBtn">Start: Both Hands</button>
+  <button id="pauseBtn" style="display:none; margin-top:10px; background:#e2e2e6; color:#1f2430;">Pause</button>
+  <button id="resetBtn" style="margin-top:10px; background:transparent; color:#ec1361; border:1.5px solid #ec1361;">Reset</button>
+</div>
+
+<script>
+  const exercises = ["Both Hands", "Right Hand", "Left Hand"];
+  let TOTAL_REPS = 15;
+  const HOLD_SECONDS = 5;
+  const REST_SECONDS = 3;
+
+  let exerciseIndex = 0;
+  let repIndex = 0;
+  let running = false;
+  let paused = false;
+  let generation = 0;
+  let activeInterval = null;
+  let lastTickLabel = '';
+  let lastStatusClass = '';
+  let wakeLock = null;
+
+  const exerciseNameEl = document.getElementById('exerciseName');
+  const repCounterEl = document.getElementById('repCounter');
+  const statusEl = document.getElementById('status');
+  const statusTextEl = document.getElementById('statusText');
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const audioBanner = document.getElementById('audioBanner');
+  const subtitleEl = document.getElementById('subtitle');
+  const repSelectEl = document.getElementById('repSelect');
+  const exerciseProgressEl = document.getElementById('exerciseProgress');
+
+  function renderExerciseProgress() {
+    exerciseProgressEl.innerHTML = exercises.map((name, i) => {
+      let cls = '';
+      if (i < exerciseIndex) cls = 'complete';
+      else if (i === exerciseIndex) cls = 'active';
+      return `<span class="${cls}">${name}${i < exercises.length - 1 ? ' · ' : ''}</span>`;
+    }).join('');
+  }
+
+  function updateSubtitle() {
+    subtitleEl.textContent = `${TOTAL_REPS} reps · ${HOLD_SECONDS}s hold · ${REST_SECONDS}s rest`;
+  }
+
+  repSelectEl.querySelectorAll('.rep-option').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (running) return; // don't allow changing mid-session
+      TOTAL_REPS = parseInt(btn.dataset.reps, 10);
+      repSelectEl.querySelectorAll('.rep-option').forEach(b => {
+        b.classList.toggle('active', b === btn);
+      });
+      updateSubtitle();
+    });
+  });
+
+  function updateIdleUI() {
+    paused = false;
+    startBtn.style.display = 'block';
+    pauseBtn.style.display = 'none';
+    audioBanner.style.display = 'none';
+    repSelectEl.classList.remove('disabled');
+    updateSubtitle();
+    const name = exercises[exerciseIndex];
+    exerciseNameEl.textContent = name;
+    if (exerciseIndex >= exercises.length) {
+      exerciseNameEl.textContent = "All done! 🎉";
+      repCounterEl.textContent = "Great work.";
+      statusEl.className = 'status done';
+      statusTextEl.textContent = "COMPLETE";
+      startBtn.textContent = "Restart";
+      startBtn.disabled = false;
+      exerciseIndex = 0;
+      repIndex = 0;
+      keepAliveAudio.pause();
+      renderExerciseProgress();
+      return;
+    }
+    repCounterEl.textContent = "Ready to start";
+    statusEl.className = 'status idle';
+    statusTextEl.textContent = "READY";
+    startBtn.textContent = `Start: ${name}`;
+    startBtn.disabled = false;
+    renderExerciseProgress();
+  }
+
+  function resetToIdle() {
+    updateIdleUI();
+  }
+
+  // ---- Audio: pre-rendered WAV clips played through <audio> elements ----
+  // (iOS keeps real <audio> playback alive in the background/lock screen the
+  // way it keeps a podcast or music app playing - live oscillator tones don't
+  // get that treatment, so we render the beeps to WAV once at page load.)
+  const SAMPLE_RATE = 22050;
+
+  function toneSamples(freq, durationSec, fadeMs = 8) {
+    const n = Math.floor(durationSec * SAMPLE_RATE);
+    const fadeSamples = Math.floor((fadeMs / 1000) * SAMPLE_RATE);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let v = Math.sin(2 * Math.PI * freq * (i / SAMPLE_RATE)) * 0.5;
+      if (i < fadeSamples) v *= i / fadeSamples;
+      if (i > n - fadeSamples) v *= (n - i) / fadeSamples;
+      out[i] = v;
+    }
+    return out;
+  }
+
+  function silenceSamples(durationSec) {
+    return new Float32Array(Math.floor(durationSec * SAMPLE_RATE));
+  }
+
+  function concatSamples(arrays) {
+    const total = arrays.reduce((s, a) => s + a.length, 0);
+    const out = new Float32Array(total);
+    let offset = 0;
+    arrays.forEach(a => { out.set(a, offset); offset += a.length; });
+    return out;
+  }
+
+  function samplesToWavUrl(samples) {
+    const bytesPerSample = 2;
+    const dataSize = samples.length * bytesPerSample;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    const writeString = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, SAMPLE_RATE, true);
+    view.setUint32(28, SAMPLE_RATE * bytesPerSample, true);
+    view.setUint16(32, bytesPerSample, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, dataSize, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return URL.createObjectURL(new Blob([view], { type: 'audio/wav' }));
+  }
+
+  // higher double-beep = "go / hold"
+  const startBeepAudio = new Audio(samplesToWavUrl(concatSamples([
+    toneSamples(880, 0.15), silenceSamples(0.08), toneSamples(880, 0.15)
+  ])));
+  // lower single beep = "stop / rest"
+  const stopBeepAudio = new Audio(samplesToWavUrl(toneSamples(330, 0.3)));
+  // lower double beep = "that's everything for this exercise"
+  const finalBeepAudio = new Audio(samplesToWavUrl(concatSamples([
+    toneSamples(330, 0.25), silenceSamples(0.1), toneSamples(330, 0.25)
+  ])));
+
+  // A very quiet continuous loop that keeps the audio session alive in the
+  // background so the beeps above keep firing on schedule with the screen off.
+  const keepAliveAudio = new Audio(samplesToWavUrl(toneSamples(20, 1, 200)));
+  keepAliveAudio.loop = true;
+  keepAliveAudio.volume = 0.015;
+
+  function playClip(audioEl) {
+    try {
+      audioEl.currentTime = 0;
+      audioEl.play().catch(() => {});
+    } catch (e) { /* ignore */ }
+  }
+
+  function vibrate(pattern) {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(pattern); // no effect on iOS Safari - API isn't supported there
+    }
+  }
+
+  function beepStart() {
+    playClip(startBeepAudio);
+    vibrate([80, 60, 80]);
+  }
+
+  function beepStop() {
+    playClip(stopBeepAudio);
+    vibrate(120);
+  }
+
+  function beepFinalStop() {
+    playClip(finalBeepAudio);
+    vibrate([150, 100, 150]);
+  }
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'Neck Exercises',
+      artist: 'Timer running'
+    });
+  }
+
+  // ---- Wake Lock ----
+  async function requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    } catch (e) {
+      // silently ignore - not all browsers support this
+    }
+  }
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+  }
+  document.addEventListener('visibilitychange', async () => {
+    if (running && document.visibilityState === 'visible') {
+      await requestWakeLock();
+      if (keepAliveAudio.paused) {
+        // Try to restart automatically first...
+        keepAliveAudio.play().catch(() => {
+          // ...if iOS blocks that, surface a clear tap target rather than failing silently.
+          audioBanner.style.display = 'block';
+        });
+      }
+    }
+  });
+
+  audioBanner.addEventListener('click', async () => {
+    try { await keepAliveAudio.play(); } catch (e) { /* ignore */ }
+    audioBanner.style.display = 'none';
+  });
+
+  // ---- Countdown helper ----
+  function countdownStep(totalSeconds, gen, onTick, onComplete) {
+    let remaining = totalSeconds;
+    onTick(remaining);
+    activeInterval = setInterval(() => {
+      if (gen !== generation) { clearInterval(activeInterval); return; } // stale after reset
+      if (paused) return; // frozen - don't count down while paused
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(activeInterval);
+        onComplete();
+      } else {
+        onTick(remaining);
+      }
+    }, 1000);
+  }
+
+  function runRep(gen) {
+    if (gen !== generation) return; // a reset happened - stop this chain
+
+    if (repIndex >= TOTAL_REPS) {
+      // exercise finished
+      running = false;
+      releaseWakeLock();
+      exerciseIndex += 1;
+      repIndex = 0;
+      updateIdleUI();
+      return;
+    }
+
+    repIndex += 1;
+    repCounterEl.textContent = `Rep ${repIndex} of ${TOTAL_REPS}`;
+
+    // HOLD phase
+    statusEl.className = 'status hold';
+    beepStart();
+    countdownStep(HOLD_SECONDS, gen,
+      (remaining) => {
+        statusTextEl.textContent = `HOLD  ${remaining}`;
+        lastTickLabel = statusTextEl.textContent;
+        lastStatusClass = statusEl.className;
+      },
+      () => {
+        // REST phase
+        statusEl.className = 'status rest';
+        const isLastRepOfExercise = (repIndex === TOTAL_REPS);
+        if (isLastRepOfExercise) {
+          beepFinalStop();
+        } else {
+          beepStop();
+        }
+        countdownStep(REST_SECONDS, gen,
+          (remaining) => {
+            statusTextEl.textContent = `REST  ${remaining}`;
+            lastTickLabel = statusTextEl.textContent;
+            lastStatusClass = statusEl.className;
+          },
+          () => { runRep(gen); }
+        );
+      }
+    );
+  }
+
+  startBtn.addEventListener('click', async () => {
+    try { await keepAliveAudio.play(); } catch (e) { /* ignore */ } // unlock + start background loop on a real tap
+    await requestWakeLock();
+    running = true;
+    paused = false;
+    startBtn.disabled = true;
+    startBtn.style.display = 'none';
+    pauseBtn.style.display = 'block';
+    pauseBtn.textContent = 'Pause';
+    repSelectEl.classList.add('disabled');
+    runRep(generation);
+  });
+
+  pauseBtn.addEventListener('click', () => {
+    if (!running) return;
+    paused = !paused;
+    if (paused) {
+      lastStatusClass = statusEl.className;
+      lastTickLabel = statusTextEl.textContent;
+      statusEl.className = 'status idle';
+      statusTextEl.textContent = 'PAUSED';
+      pauseBtn.textContent = 'Resume';
+    } else {
+      statusEl.className = lastStatusClass;
+      statusTextEl.textContent = lastTickLabel;
+      pauseBtn.textContent = 'Pause';
+    }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    generation += 1; // invalidates any in-flight countdown chain
+    if (activeInterval) clearInterval(activeInterval);
+    running = false;
+    paused = false;
+    exerciseIndex = 0;
+    repIndex = 0;
+    releaseWakeLock();
+    keepAliveAudio.pause();
+    audioBanner.style.display = 'none';
+    updateIdleUI();
+  });
+
+  renderExerciseProgress();
+</script>
+
+</body>
+</html>
