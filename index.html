@@ -203,6 +203,8 @@
   <button id="startBtn">Start: Both Hands</button>
   <button id="pauseBtn" style="display:none; margin-top:10px; background:#e2e2e6; color:#1f2430;">Pause</button>
   <button id="resetBtn" style="margin-top:10px; background:transparent; color:#ec1361; border:1.5px solid #ec1361;">Reset</button>
+  <button id="testBtn" style="margin-top:10px; background:transparent; color:#8a8f9c; border:1.5px solid #d8d8de;">Test sound</button>
+  <div id="testStatus" style="margin-top:10px; font-size:0.8rem; color:#8a8f9c; min-height:1.1em;"></div>
 </div>
 
 <script>
@@ -395,9 +397,39 @@
 
   // A very quiet continuous loop that keeps the audio session alive in the
   // background so the beeps above keep firing on schedule with the screen off.
-  const keepAliveAudio = new Audio(samplesToWavUrl(toneSamples(20, 1, 200, 0.5)));
+  //
+  // This clip has to be inaudible, and getting there is fussier than just
+  // picking a low frequency. The previous version was a 1-second clip that
+  // faded in and out over 200ms; looping it meant the amplitude swelled and
+  // collapsed to zero once per second, and that envelope is a broadband
+  // transient the speaker reproduces as an audible tick even though the 20Hz
+  // tone itself is far below what it can move. That tick was the "beep once a
+  // second".
+  //
+  // So: no fades, and a frequency and length chosen to loop seamlessly.
+  // 22050 / 21 = 1050 samples per cycle exactly, and 10s = 210 whole cycles,
+  // so the clip ends exactly where it began and the loop point is silent.
+  const keepAliveAudio = new Audio(samplesToWavUrl(toneSamples(21, 10, 0, 0.5)));
   keepAliveAudio.loop = true;
   keepAliveAudio.volume = 0.015;
+
+  // iOS will only let an <audio> element play later if that element has been
+  // played at least once inside a real user gesture. The Start tap only ever
+  // unlocked the keep-alive loop, so the three cue elements were still locked
+  // when the timer tried to sound them - and play() rejects silently, straight
+  // into the .catch below, which is why the timer ran without beeping while the
+  // keep-alive loop played fine. Priming them on the tap is what unlocks them.
+  async function unlockCueAudio() {
+    for (const a of [startBeepAudio, stopBeepAudio, finalBeepAudio]) {
+      try {
+        a.muted = true;
+        await a.play();
+        a.pause();
+        a.currentTime = 0;
+      } catch (e) { /* ignore */ }
+      a.muted = false;
+    }
+  }
 
   function playClip(audioEl) {
     try {
@@ -582,6 +614,7 @@
   }
 
   startBtn.addEventListener('click', async () => {
+    await unlockCueAudio(); // must happen inside the tap, before any awaits that could lose the gesture
     try { await keepAliveAudio.play(); } catch (e) { /* ignore */ } // unlock + start background loop on a real tap
     await requestWakeLock();
     running = true;
@@ -621,6 +654,27 @@
     keepAliveAudio.pause();
     audioBanner.style.display = 'none';
     updateIdleUI();
+  });
+
+  // Plays the three cues in order with a gap between them, so you can hear
+  // which ones your handset actually reproduces without running a whole set.
+  const testBtn = document.getElementById('testBtn');
+  const testStatusEl = document.getElementById('testStatus');
+  testBtn.addEventListener('click', async () => {
+    await unlockCueAudio();
+    testBtn.disabled = true;
+    const steps = [
+      ['Start of rep (high, short)', beepStart],
+      ['End of rep (lower, longer, louder)', beepStop],
+      ['End of exercise (double)', beepFinalStop]
+    ];
+    for (const [label, play] of steps) {
+      testStatusEl.textContent = label;
+      play();
+      await new Promise(r => setTimeout(r, 1400));
+    }
+    testStatusEl.textContent = 'Heard all three?';
+    testBtn.disabled = false;
   });
 
   renderExerciseProgress();
