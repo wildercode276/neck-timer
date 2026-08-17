@@ -298,12 +298,19 @@
   // get that treatment, so we render the beeps to WAV once at page load.)
   const SAMPLE_RATE = 22050;
 
-  function toneSamples(freq, durationSec, fadeMs = 8) {
+  function toneSamples(freq, durationSec, fadeMs = 8, amp = 0.9) {
     const n = Math.floor(durationSec * SAMPLE_RATE);
     const fadeSamples = Math.floor((fadeMs / 1000) * SAMPLE_RATE);
     const out = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      let v = Math.sin(2 * Math.PI * freq * (i / SAMPLE_RATE)) * 0.5;
+      const t = i / SAMPLE_RATE;
+      // Fundamental plus the octave above it. A phone speaker is tiny and moves
+      // almost no air below ~500Hz, so a pure low tone all but vanishes on the
+      // handset even at full volume. The added octave gives the speaker
+      // something it can actually reproduce while the ear still reads the cue
+      // as the lower pitch.
+      let v = (Math.sin(2 * Math.PI * freq * t) * 0.7 +
+               Math.sin(2 * Math.PI * freq * 2 * t) * 0.3) * amp;
       if (i < fadeSamples) v *= i / fadeSamples;
       if (i > n - fadeSamples) v *= (n - i) / fadeSamples;
       out[i] = v;
@@ -350,32 +357,58 @@
     return URL.createObjectURL(new Blob([view], { type: 'audio/wav' }));
   }
 
-  // higher single beep = "go / hold"
-  const startBeepAudio = new Audio(samplesToWavUrl(toneSamples(880, 0.18, 3)));
-  // lower single beep = "stop / rest"
-  const stopBeepAudio = new Audio(samplesToWavUrl(toneSamples(330, 0.25, 3)));
+  // Cue pitches. The end-of-rep cues used to sit at 330Hz, which is low enough
+  // that a phone speaker swallowed them - the start beep came through and the
+  // stop beeps did not. 587Hz is still clearly below the start beep, so the
+  // "up = go, down = stop" shape survives, but it's inside the range the
+  // handset can actually produce.
+  const START_FREQ = 880;
+  const STOP_FREQ = 587;
+
+  // higher, short single beep = "go / hold"
+  const startBeepAudio = new Audio(samplesToWavUrl(toneSamples(START_FREQ, 0.18, 3, 0.6)));
+  // lower, longer, louder single beep = "stop / rest"
+  const stopBeepAudio = new Audio(samplesToWavUrl(toneSamples(STOP_FREQ, 0.45, 3, 0.95)));
   // lower double beep = "that's everything for this exercise"
   const finalBeepAudio = new Audio(samplesToWavUrl(concatSamples([
-    toneSamples(330, 0.25, 3), silenceSamples(0.1), toneSamples(330, 0.25, 3)
+    toneSamples(STOP_FREQ, 0.3, 3, 0.95),
+    silenceSamples(0.12),
+    toneSamples(STOP_FREQ, 0.3, 3, 0.95)
   ])));
 
   // Rewind each clip as soon as it finishes, so the next play() is a straight
   // start rather than a seek-then-start - the seek is what made cues land late.
   [startBeepAudio, stopBeepAudio, finalBeepAudio].forEach(a => {
     a.preload = 'auto';
+    a.volume = 1.0;
     a.addEventListener('ended', () => {
       try { a.currentTime = 0; } catch (e) { /* ignore */ }
     });
   });
 
+  // iOS 16.4+ - opt the page into the "playback" audio category so the cues
+  // still sound with the ring/silent switch flipped to silent. Without this the
+  // page is treated as ambient audio and the hardware mute kills every beep.
+  if ('audioSession' in navigator) {
+    try { navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
+  }
+
   // A very quiet continuous loop that keeps the audio session alive in the
   // background so the beeps above keep firing on schedule with the screen off.
-  const keepAliveAudio = new Audio(samplesToWavUrl(toneSamples(20, 1, 200)));
+  const keepAliveAudio = new Audio(samplesToWavUrl(toneSamples(20, 1, 200, 0.5)));
   keepAliveAudio.loop = true;
   keepAliveAudio.volume = 0.015;
 
   function playClip(audioEl) {
     try {
+      if (!audioEl.paused) {
+        // Still sounding from a previous cue. Restarting it here would clip the
+        // tone short, so fire a copy instead and let both ring out.
+        const clone = audioEl.cloneNode();
+        clone.volume = audioEl.volume;
+        clone.play().catch(() => {});
+        return;
+      }
       if (audioEl.currentTime !== 0) audioEl.currentTime = 0;
       audioEl.play().catch(() => {});
     } catch (e) { /* ignore */ }
