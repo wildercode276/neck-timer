@@ -367,16 +367,22 @@
   const START_FREQ = 880;
   const STOP_FREQ = 587;
 
-  // higher, short single beep = "go / hold"
-  const startBeepAudio = new Audio(samplesToWavUrl(toneSamples(START_FREQ, 0.18, 3, 0.6)));
-  // lower, longer, louder single beep = "stop / rest"
-  const stopBeepAudio = new Audio(samplesToWavUrl(toneSamples(STOP_FREQ, 0.45, 3, 0.95)));
-  // lower double beep = "that's everything for this exercise"
-  const finalBeepAudio = new Audio(samplesToWavUrl(concatSamples([
-    toneSamples(STOP_FREQ, 0.3, 3, 0.95),
-    silenceSamples(0.12),
-    toneSamples(STOP_FREQ, 0.3, 3, 0.95)
-  ])));
+  const cueSamples = {
+    // higher, short single beep = "go / hold"
+    start: toneSamples(START_FREQ, 0.18, 3, 0.6),
+    // lower, longer, louder single beep = "stop / rest"
+    stop: toneSamples(STOP_FREQ, 0.45, 3, 0.95),
+    // lower double beep = "that's everything for this exercise"
+    final: concatSamples([
+      toneSamples(STOP_FREQ, 0.3, 3, 0.95),
+      silenceSamples(0.12),
+      toneSamples(STOP_FREQ, 0.3, 3, 0.95)
+    ])
+  };
+
+  const startBeepAudio = new Audio(samplesToWavUrl(cueSamples.start));
+  const stopBeepAudio = new Audio(samplesToWavUrl(cueSamples.stop));
+  const finalBeepAudio = new Audio(samplesToWavUrl(cueSamples.final));
 
   // Rewind each clip as soon as it finishes, so the next play() is a straight
   // start rather than a seek-then-start - the seek is what made cues land late.
@@ -387,6 +393,56 @@
       try { a.currentTime = 0; } catch (e) { /* ignore */ }
     });
   });
+
+  // ---- Web Audio cue playback ----
+  // The cues above are <audio> elements, and an <audio> element is a poor
+  // instrument for anything that has to land on a beat: play() goes through
+  // element state, buffering and (if currentTime isn't already 0) a seek, and
+  // on iOS that added up to roughly a second of lag behind the on-screen
+  // countdown. Web Audio has none of that - a buffer source is fire-and-forget
+  // and starts within a few milliseconds.
+  //
+  // The <audio> elements stay as a fallback for browsers without AudioContext,
+  // and the keep-alive element below is still what holds the audio session open
+  // in the background. Only the cues move.
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  let audioCtx = null;
+  const cueBuffers = {};
+
+  function ensureAudioContext() {
+    if (!audioCtx && AudioCtx) {
+      try {
+        audioCtx = new AudioCtx();
+        for (const name of Object.keys(cueSamples)) {
+          const s = cueSamples[name];
+          // Buffer is at SAMPLE_RATE; Web Audio resamples to the context rate.
+          const buf = audioCtx.createBuffer(1, s.length, SAMPLE_RATE);
+          buf.copyToChannel(s, 0);
+          cueBuffers[name] = buf;
+        }
+      } catch (e) {
+        audioCtx = null; // fall back to the <audio> elements
+      }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+    return audioCtx;
+  }
+
+  function playCue(name, fallbackEl) {
+    const ctx = ensureAudioContext();
+    if (ctx && cueBuffers[name] && ctx.state === 'running') {
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = cueBuffers[name];
+        src.connect(ctx.destination);
+        src.start();
+        return;
+      } catch (e) { /* fall through to the element */ }
+    }
+    playClip(fallbackEl);
+  }
 
   // iOS 16.4+ - opt the page into the "playback" audio category so the cues
   // still sound with the ring/silent switch flipped to silent. Without this the
@@ -453,17 +509,17 @@
   }
 
   function beepStart() {
-    playClip(startBeepAudio);
+    playCue('start', startBeepAudio);
     vibrate(100);
   }
 
   function beepStop() {
-    playClip(stopBeepAudio);
+    playCue('stop', stopBeepAudio);
     vibrate(120);
   }
 
   function beepFinalStop() {
-    playClip(finalBeepAudio);
+    playCue('final', finalBeepAudio);
     vibrate([150, 100, 150]);
   }
 
@@ -493,6 +549,7 @@
   document.addEventListener('visibilitychange', async () => {
     if (running && document.visibilityState === 'visible') {
       await requestWakeLock();
+      ensureAudioContext(); // iOS suspends the context in the background
       if (keepAliveAudio.paused) {
         // Try to restart automatically first...
         keepAliveAudio.play().catch(() => {
@@ -614,7 +671,8 @@
   }
 
   startBtn.addEventListener('click', async () => {
-    await unlockCueAudio(); // must happen inside the tap, before any awaits that could lose the gesture
+    ensureAudioContext();   // synchronous, so it still counts as inside the tap
+    await unlockCueAudio(); // primes the <audio> fallbacks while the gesture is live
     try { await keepAliveAudio.play(); } catch (e) { /* ignore */ } // unlock + start background loop on a real tap
     await requestWakeLock();
     running = true;
@@ -661,6 +719,7 @@
   const testBtn = document.getElementById('testBtn');
   const testStatusEl = document.getElementById('testStatus');
   testBtn.addEventListener('click', async () => {
+    ensureAudioContext();
     await unlockCueAudio();
     testBtn.disabled = true;
     const steps = [
